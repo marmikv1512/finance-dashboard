@@ -3,7 +3,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { formatCurrency } from "@/lib/utils";
 import { useListAccounts, Account } from "@workspace/api-client-react";
-import { Plus, CreditCard, Building2, Landmark, Wallet } from "lucide-react";
+import { Plus, CreditCard, Building2, Landmark, Wallet, Activity } from "lucide-react";
 
 export default function Accounts() {
   const { data: accounts, isLoading } = useListAccounts();
