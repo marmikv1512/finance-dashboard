@@ -10,6 +10,7 @@ import Accounts from "@/pages/Accounts";
 import Budgets from "@/pages/Budgets";
 import Goals from "@/pages/Goals";
 import Analytics from "@/pages/Analytics";
+import Settings from "@/pages/Settings";
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -29,6 +30,7 @@ function Router() {
       <Route path="/budgets" component={Budgets} />
       <Route path="/goals" component={Goals} />
       <Route path="/analytics" component={Analytics} />
+      <Route path="/settings" component={Settings} />
       <Route component={NotFound} />
     </Switch>
   );
