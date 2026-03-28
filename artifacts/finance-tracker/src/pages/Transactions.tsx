@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { AppLayout } from "@/components/layout/AppLayout";
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -6,8 +6,25 @@ import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
 import { Modal } from "@/components/ui/modal";
 import { formatCurrency } from "@/lib/utils";
-import { useListTransactions, useDeleteTransaction, useCreateTransaction, Transaction, CreateTransactionRequestType } from "@workspace/api-client-react";
-import { Plus, Search, Filter, MoreHorizontal, ArrowUpRight, ArrowDownRight, ArrowRightLeft, Trash2 } from "lucide-react";
+import { apiFetch } from "@/lib/api";
+import {
+  useListTransactions,
+  useDeleteTransaction,
+  useListAccounts,
+  useListCategories,
+  Transaction,
+  Account,
+  Category,
+} from "@workspace/api-client-react";
+import {
+  Plus,
+  Search,
+  Filter,
+  ArrowUpRight,
+  ArrowDownRight,
+  ArrowRightLeft,
+  Trash2,
+} from "lucide-react";
 import { format, parseISO } from "date-fns";
 import { useForm } from "react-hook-form";
 import { z } from "zod";
@@ -18,45 +35,194 @@ const formSchema = z.object({
   description: z.string().min(1, "Description is required"),
   amount: z.coerce.number().positive("Amount must be positive"),
   type: z.enum(["income", "expense", "transfer"]),
-  date: z.string(),
-  accountId: z.coerce.number(),
-  categoryId: z.coerce.number().optional(),
+  date: z.string().min(1, "Date is required"),
+  accountId: z.coerce.number().positive("Account is required"),
+  categoryId: z.coerce.number().positive("Category is required"),
 });
 
 type FormData = z.infer<typeof formSchema>;
+
+async function tryCreateTransaction(payload: Record<string, unknown>) {
+  const candidates: Array<Record<string, unknown>> = [
+    payload,
+    { ...payload, date: new Date(String(payload.date)).toISOString() },
+    { ...payload, amount: String(payload.amount) },
+    {
+      ...payload,
+      amount: String(payload.amount),
+      date: new Date(String(payload.date)).toISOString(),
+    },
+    { data: payload },
+    { data: { ...payload, date: new Date(String(payload.date)).toISOString() } },
+    { data: { ...payload, amount: String(payload.amount) } },
+    {
+      data: {
+        ...payload,
+        amount: String(payload.amount),
+        date: new Date(String(payload.date)).toISOString(),
+      },
+    },
+    {
+      ...payload,
+      accountId: String(payload.accountId),
+      categoryId: String(payload.categoryId),
+    },
+    {
+      data: {
+        ...payload,
+        accountId: String(payload.accountId),
+        categoryId: String(payload.categoryId),
+      },
+    },
+  ];
+
+  let lastError = "Invalid transaction data";
+
+  for (const body of candidates) {
+    const response = await apiFetch("/api/transactions", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify(body),
+    });
+
+    if (response.ok) {
+      try {
+        return await response.json();
+      } catch {
+        return {};
+      }
+    }
+
+    try {
+      const errorData = await response.json();
+      lastError = errorData?.error || errorData?.message || response.statusText || lastError;
+    } catch {
+      lastError = response.statusText || lastError;
+    }
+  }
+
+  throw new Error(lastError);
+}
 
 export default function Transactions() {
   const queryClient = useQueryClient();
   const [search, setSearch] = useState("");
   const [isCreateModalOpen, setIsCreateModalOpen] = useState(false);
-  const { data: transactionsData, isLoading } = useListTransactions({ search });
+  const [submitError, setSubmitError] = useState("");
+  const [isSaving, setIsSaving] = useState(false);
+
+  const { data: transactionsResponse, isLoading } = useListTransactions({ search });
+  const { data: accountsResponse } = useListAccounts();
+  const { data: categoriesResponse } = useListCategories();
+
+  const transactions: Transaction[] = useMemo(() => {
+    if (Array.isArray(transactionsResponse)) return transactionsResponse;
+    if (Array.isArray((transactionsResponse as any)?.data)) return (transactionsResponse as any).data;
+    return [];
+  }, [transactionsResponse]);
+
+  const accounts: Account[] = useMemo(() => {
+    if (Array.isArray(accountsResponse)) return accountsResponse;
+    if (Array.isArray((accountsResponse as any)?.data)) return (accountsResponse as any).data;
+    return [];
+  }, [accountsResponse]);
+
+  const categories: Category[] = useMemo(() => {
+    if (Array.isArray(categoriesResponse)) return categoriesResponse;
+    if (Array.isArray((categoriesResponse as any)?.data)) return (categoriesResponse as any).data;
+    return [];
+  }, [categoriesResponse]);
+
   const deleteMutation = useDeleteTransaction({
     mutation: {
-      onSuccess: () => queryClient.invalidateQueries({ queryKey: ["/api/transactions"] })
-    }
-  });
-  
-  const createMutation = useCreateTransaction({
-    mutation: {
-      onSuccess: () => {
-        queryClient.invalidateQueries({ queryKey: ["/api/transactions"] });
-        setIsCreateModalOpen(false);
-        reset();
-      }
-    }
+      onSuccess: async () => {
+        await Promise.all([
+          queryClient.invalidateQueries({ queryKey: ["/api/transactions"] }),
+          queryClient.invalidateQueries({ queryKey: ["/api/analytics/summary"] }),
+          queryClient.invalidateQueries({ queryKey: ["/api/analytics/monthly-trends"] }),
+          queryClient.invalidateQueries({ queryKey: ["/api/analytics/spending-by-category"] }),
+        ]);
+      },
+    },
   });
 
-  const { register, handleSubmit, reset, formState: { errors } } = useForm<FormData>({
+  const {
+    register,
+    handleSubmit,
+    reset,
+    setValue,
+    watch,
+    formState: { errors },
+  } = useForm<FormData>({
     resolver: zodResolver(formSchema),
     defaultValues: {
-      date: new Date().toISOString().split('T')[0],
+      description: "",
+      amount: undefined as unknown as number,
+      date: new Date().toISOString().split("T")[0],
       type: "expense",
-      accountId: 1 // Defaulting to 1 for simplicity in mockup
-    }
+      accountId: 0,
+      categoryId: 0,
+    },
   });
 
-  const onSubmit = (data: FormData) => {
-    createMutation.mutate({ data: data as any });
+  const selectedType = watch("type");
+
+  useEffect(() => {
+    if (accounts.length > 0) {
+      setValue("accountId", accounts[0].id);
+    }
+  }, [accounts, setValue]);
+
+  useEffect(() => {
+    if (categories.length > 0) {
+      setValue("categoryId", categories[0].id);
+    }
+  }, [categories, setValue]);
+
+  const onSubmit = async (data: FormData) => {
+    setSubmitError("");
+    setIsSaving(true);
+
+    const payload = {
+      description: data.description.trim(),
+      amount: Number(data.amount),
+      type: data.type,
+      date: data.date,
+      accountId: Number(data.accountId),
+      categoryId: Number(data.categoryId),
+    };
+
+    try {
+      await tryCreateTransaction(payload);
+
+      await Promise.all([
+        queryClient.invalidateQueries({ queryKey: ["/api/transactions"] }),
+        queryClient.invalidateQueries({ queryKey: ["/api/analytics/summary"] }),
+        queryClient.invalidateQueries({ queryKey: ["/api/analytics/monthly-trends"] }),
+        queryClient.invalidateQueries({ queryKey: ["/api/analytics/spending-by-category"] }),
+      ]);
+
+      const fallbackAccountId = accounts.length > 0 ? accounts[0].id : 0;
+      const fallbackCategoryId = categories.length > 0 ? categories[0].id : 0;
+
+      reset({
+        description: "",
+        amount: undefined as unknown as number,
+        date: new Date().toISOString().split("T")[0],
+        type: "expense",
+        accountId: fallbackAccountId,
+        categoryId: fallbackCategoryId,
+      });
+
+      setIsCreateModalOpen(false);
+    } catch (error: any) {
+      console.error("Create transaction failed:", error);
+      setSubmitError(error?.message || "Failed to save transaction.");
+    } finally {
+      setIsSaving(false);
+    }
   };
 
   return (
@@ -66,7 +232,13 @@ export default function Transactions() {
           <h1 className="text-3xl font-bold tracking-tight text-foreground">Transactions</h1>
           <p className="text-muted-foreground mt-1">Manage your income and expenses.</p>
         </div>
-        <Button onClick={() => setIsCreateModalOpen(true)} className="shadow-lg shadow-primary/20">
+        <Button
+          onClick={() => {
+            setSubmitError("");
+            setIsCreateModalOpen(true);
+          }}
+          className="shadow-lg shadow-primary/20"
+        >
           <Plus className="mr-2 h-4 w-4" />
           Add Transaction
         </Button>
@@ -76,9 +248,9 @@ export default function Transactions() {
         <div className="flex flex-col sm:flex-row gap-4">
           <div className="relative flex-1">
             <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
-            <Input 
-              placeholder="Search transactions..." 
-              className="pl-10" 
+            <Input
+              placeholder="Search transactions..."
+              className="pl-10"
               value={search}
               onChange={(e) => setSearch(e.target.value)}
             />
@@ -104,7 +276,7 @@ export default function Transactions() {
             </thead>
             <tbody className="divide-y divide-border/50">
               {isLoading ? (
-                [1, 2, 3, 4, 5].map(i => (
+                [1, 2, 3, 4, 5].map((i) => (
                   <tr key={i} className="animate-pulse">
                     <td className="px-6 py-4"><div className="h-4 bg-secondary rounded w-3/4"></div></td>
                     <td className="px-6 py-4"><div className="h-4 bg-secondary rounded w-1/2"></div></td>
@@ -113,29 +285,39 @@ export default function Transactions() {
                     <td className="px-6 py-4"></td>
                   </tr>
                 ))
-              ) : transactionsData?.data?.length === 0 ? (
+              ) : transactions.length === 0 ? (
                 <tr>
                   <td colSpan={5} className="px-6 py-12 text-center text-muted-foreground">
                     No transactions found
                   </td>
                 </tr>
               ) : (
-                transactionsData?.data?.map((tx: Transaction) => (
+                transactions.map((tx: Transaction) => (
                   <tr key={tx.id} className="hover:bg-secondary/20 transition-colors group">
                     <td className="px-6 py-4">
                       <div className="flex items-center gap-3">
-                        <div className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-full ${
-                          tx.type === 'income' ? 'bg-emerald-500/10 text-emerald-400' :
-                          tx.type === 'expense' ? 'bg-destructive/10 text-destructive' :
-                          'bg-blue-500/10 text-blue-400'
-                        }`}>
-                          {tx.type === 'income' ? <ArrowUpRight className="h-4 w-4" /> : 
-                           tx.type === 'expense' ? <ArrowDownRight className="h-4 w-4" /> : 
-                           <ArrowRightLeft className="h-4 w-4" />}
+                        <div
+                          className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-full ${
+                            tx.type === "income"
+                              ? "bg-emerald-500/10 text-emerald-400"
+                              : tx.type === "expense"
+                              ? "bg-destructive/10 text-destructive"
+                              : "bg-blue-500/10 text-blue-400"
+                          }`}
+                        >
+                          {tx.type === "income" ? (
+                            <ArrowUpRight className="h-4 w-4" />
+                          ) : tx.type === "expense" ? (
+                            <ArrowDownRight className="h-4 w-4" />
+                          ) : (
+                            <ArrowRightLeft className="h-4 w-4" />
+                          )}
                         </div>
                         <div>
                           <p className="font-medium text-foreground">{tx.description}</p>
-                          <p className="text-xs text-muted-foreground">{tx.account?.name || `Account #${tx.accountId}`}</p>
+                          <p className="text-xs text-muted-foreground">
+                            {tx.account?.name || `Account #${tx.accountId}`}
+                          </p>
                         </div>
                       </div>
                     </td>
@@ -151,20 +333,25 @@ export default function Transactions() {
                     <td className="px-6 py-4 text-muted-foreground whitespace-nowrap">
                       {format(parseISO(tx.date), "MMM d, yyyy")}
                     </td>
-                    <td className={`px-6 py-4 text-right font-mono font-medium whitespace-nowrap ${
-                        tx.type === 'income' ? 'text-emerald-400' :
-                        tx.type === 'expense' ? 'text-foreground' :
-                        'text-blue-400'
-                    }`}>
-                      {tx.type === 'income' ? '+' : tx.type === 'expense' ? '-' : ''}{formatCurrency(tx.amount)}
+                    <td
+                      className={`px-6 py-4 text-right font-mono font-medium whitespace-nowrap ${
+                        tx.type === "income"
+                          ? "text-emerald-400"
+                          : tx.type === "expense"
+                          ? "text-foreground"
+                          : "text-blue-400"
+                      }`}
+                    >
+                      {tx.type === "income" ? "+" : tx.type === "expense" ? "-" : ""}
+                      {formatCurrency(tx.amount)}
                     </td>
                     <td className="px-6 py-4 text-right">
-                      <Button 
-                        variant="ghost" 
-                        size="icon" 
+                      <Button
+                        variant="ghost"
+                        size="icon"
                         className="opacity-0 group-hover:opacity-100 transition-opacity text-muted-foreground hover:text-destructive"
                         onClick={() => {
-                          if (confirm('Are you sure you want to delete this transaction?')) {
+                          if (confirm("Are you sure you want to delete this transaction?")) {
                             deleteMutation.mutate({ id: tx.id });
                           }
                         }}
@@ -180,9 +367,12 @@ export default function Transactions() {
         </div>
       </Card>
 
-      <Modal 
-        isOpen={isCreateModalOpen} 
-        onClose={() => setIsCreateModalOpen(false)}
+      <Modal
+        isOpen={isCreateModalOpen}
+        onClose={() => {
+          setSubmitError("");
+          setIsCreateModalOpen(false);
+        }}
         title="Add Transaction"
         description="Enter the details of your transaction."
       >
@@ -190,15 +380,20 @@ export default function Transactions() {
           <div className="space-y-2">
             <label className="text-sm font-medium">Type</label>
             <div className="flex gap-4">
-              {['expense', 'income', 'transfer'].map(type => (
+              {["expense", "income", "transfer"].map((type) => (
                 <label key={type} className="flex items-center gap-2">
-                  <input type="radio" value={type} {...register("type")} className="text-primary bg-background border-border focus:ring-primary" />
+                  <input
+                    type="radio"
+                    value={type}
+                    {...register("type")}
+                    className="text-primary bg-background border-border focus:ring-primary"
+                  />
                   <span className="capitalize">{type}</span>
                 </label>
               ))}
             </div>
           </div>
-          
+
           <div className="space-y-2">
             <label className="text-sm font-medium">Description</label>
             <Input {...register("description")} placeholder="Grocery, Salary, etc." />
@@ -218,14 +413,62 @@ export default function Transactions() {
             </div>
           </div>
 
-          <div className="space-y-2 hidden">
-             {/* Hidden for simplicity, default value handled by form */}
-            <Input type="number" {...register("accountId")} />
+          <div className="space-y-2">
+            <label className="text-sm font-medium">Account</label>
+            <select
+              {...register("accountId")}
+              className="w-full rounded-md border border-border bg-background px-3 py-2 text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-primary/50"
+            >
+              {accounts.length === 0 ? (
+                <option value="">No accounts available</option>
+              ) : (
+                accounts.map((account) => (
+                  <option key={account.id} value={account.id}>
+                    {account.name}
+                  </option>
+                ))
+              )}
+            </select>
+            {errors.accountId && <p className="text-sm text-destructive">{errors.accountId.message}</p>}
           </div>
 
+          <div className="space-y-2">
+            <label className="text-sm font-medium">
+              Category {selectedType === "transfer" ? "(required by current API)" : ""}
+            </label>
+            <select
+              {...register("categoryId")}
+              className="w-full rounded-md border border-border bg-background px-3 py-2 text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-primary/50"
+            >
+              {categories.length === 0 ? (
+                <option value="">No categories available</option>
+              ) : (
+                categories.map((category) => (
+                  <option key={category.id} value={category.id}>
+                    {category.name}
+                  </option>
+                ))
+              )}
+            </select>
+            {errors.categoryId && <p className="text-sm text-destructive">{errors.categoryId.message}</p>}
+          </div>
+
+          {submitError ? <p className="text-sm text-destructive">{submitError}</p> : null}
+
           <div className="pt-4 flex justify-end gap-3">
-            <Button variant="ghost" type="button" onClick={() => setIsCreateModalOpen(false)}>Cancel</Button>
-            <Button type="submit" isLoading={createMutation.isPending}>Save Transaction</Button>
+            <Button
+              variant="ghost"
+              type="button"
+              onClick={() => {
+                setSubmitError("");
+                setIsCreateModalOpen(false);
+              }}
+            >
+              Cancel
+            </Button>
+            <Button type="submit" isLoading={isSaving}>
+              Save Transaction
+            </Button>
           </div>
         </form>
       </Modal>

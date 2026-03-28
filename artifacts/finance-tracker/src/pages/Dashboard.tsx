@@ -1,9 +1,8 @@
 import { AppLayout } from "@/components/layout/AppLayout";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { Badge } from "@/components/ui/badge";
 import { formatCurrency } from "@/lib/utils";
 import { useGetAnalyticsSummary, useListTransactions, useGetMonthlyTrends } from "@workspace/api-client-react";
-import { ArrowDownRight, ArrowUpRight, DollarSign, Wallet, Activity, Plus } from "lucide-react";
+import { ArrowDownRight, ArrowUpRight, DollarSign, Wallet, Activity, Plus, ArrowRightLeft } from "lucide-react";
 import { format, parseISO } from "date-fns";
 import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid } from "recharts";
 import { Link } from "wouter";
@@ -12,6 +11,9 @@ export default function Dashboard() {
   const { data: summary, isLoading: isLoadingSummary } = useGetAnalyticsSummary({});
   const { data: transactions, isLoading: isLoadingTx } = useListTransactions({ limit: 5 });
   const { data: trends, isLoading: isLoadingTrends } = useGetMonthlyTrends({ months: 6 });
+
+  const recentTransactions = Array.isArray(transactions?.data) ? transactions.data : [];
+  const chartData = Array.isArray(trends) ? trends : Array.isArray(trends?.data) ? trends.data : [];
 
   return (
     <AppLayout>
@@ -29,7 +31,6 @@ export default function Dashboard() {
         </Link>
       </div>
 
-      {/* Stats Row */}
       <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4 mb-8">
         <Card className="bg-card/50 backdrop-blur-sm border-border/50">
           <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
@@ -99,7 +100,7 @@ export default function Dashboard() {
             ) : (
               <>
                 <div className="text-2xl font-bold font-mono text-blue-400">
-                  {summary?.savingsRate.toFixed(1) || 0}%
+                  {typeof summary?.savingsRate === "number" ? summary.savingsRate.toFixed(1) : "0.0"}%
                 </div>
                 <p className="text-xs text-muted-foreground mt-1">Target: 20%</p>
               </>
@@ -119,13 +120,13 @@ export default function Dashboard() {
                 <div className="w-full h-full bg-secondary/50 animate-pulse rounded-lg"></div>
               ) : (
                 <ResponsiveContainer width="100%" height="100%">
-                  <BarChart data={trends || []} margin={{ top: 10, right: 10, left: -20, bottom: 0 }}>
+                  <BarChart data={chartData} margin={{ top: 10, right: 10, left: -20, bottom: 0 }}>
                     <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" vertical={false} />
                     <XAxis dataKey="month" stroke="hsl(var(--muted-foreground))" fontSize={12} tickLine={false} axisLine={false} />
                     <YAxis stroke="hsl(var(--muted-foreground))" fontSize={12} tickLine={false} axisLine={false} tickFormatter={(value) => `$${value}`} />
-                    <Tooltip 
-                      cursor={{fill: 'hsl(var(--secondary))'}}
-                      contentStyle={{ backgroundColor: 'hsl(var(--card))', borderColor: 'hsl(var(--border))', borderRadius: '8px' }}
+                    <Tooltip
+                      cursor={{ fill: "hsl(var(--secondary))" }}
+                      contentStyle={{ backgroundColor: "hsl(var(--card))", borderColor: "hsl(var(--border))", borderRadius: "8px" }}
                       formatter={(value: number) => [formatCurrency(value), undefined]}
                     />
                     <Bar dataKey="income" name="Income" fill="hsl(153, 60%, 53%)" radius={[4, 4, 0, 0]} />
@@ -144,37 +145,50 @@ export default function Dashboard() {
           <CardContent className="flex-1">
             {isLoadingTx ? (
               <div className="space-y-4">
-                {[1, 2, 3, 4].map(i => (
+                {[1, 2, 3, 4].map((i) => (
                   <div key={i} className="h-12 bg-secondary/50 animate-pulse rounded-lg"></div>
                 ))}
               </div>
-            ) : transactions?.data && transactions.data.length > 0 ? (
+            ) : recentTransactions.length > 0 ? (
               <div className="space-y-4">
-                {transactions.data.map(tx => (
+                {recentTransactions.map((tx) => (
                   <div key={tx.id} className="flex items-center justify-between border-b border-border/50 pb-4 last:border-0 last:pb-0">
                     <div className="flex items-center gap-4">
-                      <div className={`flex h-10 w-10 items-center justify-center rounded-full ${
-                        tx.type === 'income' ? 'bg-emerald-500/10 text-emerald-400' :
-                        tx.type === 'expense' ? 'bg-destructive/10 text-destructive' :
-                        'bg-blue-500/10 text-blue-400'
-                      }`}>
-                        {tx.type === 'income' ? <ArrowUpRight className="h-5 w-5" /> : 
-                         tx.type === 'expense' ? <ArrowDownRight className="h-5 w-5" /> : 
-                         <ArrowRightLeft className="h-5 w-5" />}
+                      <div
+                        className={`flex h-10 w-10 items-center justify-center rounded-full ${
+                          tx.type === "income"
+                            ? "bg-emerald-500/10 text-emerald-400"
+                            : tx.type === "expense"
+                            ? "bg-destructive/10 text-destructive"
+                            : "bg-blue-500/10 text-blue-400"
+                        }`}
+                      >
+                        {tx.type === "income" ? (
+                          <ArrowUpRight className="h-5 w-5" />
+                        ) : tx.type === "expense" ? (
+                          <ArrowDownRight className="h-5 w-5" />
+                        ) : (
+                          <ArrowRightLeft className="h-5 w-5" />
+                        )}
                       </div>
                       <div>
                         <p className="text-sm font-medium leading-none text-foreground">{tx.description}</p>
                         <p className="text-xs text-muted-foreground mt-1">
-                          {format(parseISO(tx.date), "MMM d, yyyy")} &middot; {tx.category?.name || 'Uncategorized'}
+                          {format(parseISO(tx.date), "MMM d, yyyy")} &middot; {tx.category?.name || "Uncategorized"}
                         </p>
                       </div>
                     </div>
-                    <div className={`font-mono font-medium ${
-                        tx.type === 'income' ? 'text-emerald-400' :
-                        tx.type === 'expense' ? 'text-foreground' :
-                        'text-blue-400'
-                    }`}>
-                      {tx.type === 'income' ? '+' : tx.type === 'expense' ? '-' : ''}{formatCurrency(tx.amount)}
+                    <div
+                      className={`font-mono font-medium ${
+                        tx.type === "income"
+                          ? "text-emerald-400"
+                          : tx.type === "expense"
+                          ? "text-foreground"
+                          : "text-blue-400"
+                      }`}
+                    >
+                      {tx.type === "income" ? "+" : tx.type === "expense" ? "-" : ""}
+                      {formatCurrency(tx.amount)}
                     </div>
                   </div>
                 ))}
@@ -183,7 +197,9 @@ export default function Dashboard() {
               <div className="flex flex-col items-center justify-center h-full text-center p-6 text-muted-foreground">
                 <Wallet className="h-10 w-10 mb-4 opacity-20" />
                 <p>No recent transactions</p>
-                <Link href="/transactions" className="text-primary text-sm hover:underline mt-2">Add one now</Link>
+                <Link href="/transactions" className="text-primary text-sm hover:underline mt-2">
+                  Add one now
+                </Link>
               </div>
             )}
           </CardContent>

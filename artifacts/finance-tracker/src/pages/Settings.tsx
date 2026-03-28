@@ -1,19 +1,98 @@
 import { AppLayout } from "@/components/layout/AppLayout";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { useState } from "react";
-import { User, Bell, DollarSign, Shield, Palette, Download } from "lucide-react";
+import { useEffect, useState } from "react";
+import { User, Bell, DollarSign, Shield, Download } from "lucide-react";
+
+type SettingsData = {
+  firstName: string;
+  lastName: string;
+  email: string;
+  currency: string;
+  dateFormat: string;
+  emailNotifications: boolean;
+  budgetAlerts: boolean;
+  goalReminders: boolean;
+};
+
+const STORAGE_KEY = "fintrack_settings";
+
+const defaultSettings: SettingsData = {
+  firstName: "John",
+  lastName: "Doe",
+  email: "john.doe@example.com",
+  currency: "USD",
+  dateFormat: "MM/DD/YYYY",
+  emailNotifications: true,
+  budgetAlerts: true,
+  goalReminders: true,
+};
 
 export default function Settings() {
-  const [currency, setCurrency] = useState("USD");
-  const [dateFormat, setDateFormat] = useState("MM/DD/YYYY");
-  const [emailNotifications, setEmailNotifications] = useState(true);
-  const [budgetAlerts, setBudgetAlerts] = useState(true);
-  const [goalReminders, setGoalReminders] = useState(true);
+  const [settings, setSettings] = useState<SettingsData>(defaultSettings);
   const [saved, setSaved] = useState(false);
 
+  useEffect(() => {
+    try {
+      const raw = localStorage.getItem(STORAGE_KEY);
+      if (!raw) return;
+
+      const parsed = JSON.parse(raw);
+      setSettings({
+        ...defaultSettings,
+        ...parsed,
+      });
+    } catch (error) {
+      console.error("Failed to load saved settings:", error);
+    }
+  }, []);
+
   const handleSave = () => {
-    setSaved(true);
-    setTimeout(() => setSaved(false), 2000);
+    try {
+      localStorage.setItem(STORAGE_KEY, JSON.stringify(settings));
+      setSaved(true);
+      setTimeout(() => setSaved(false), 2000);
+    } catch (error) {
+      console.error("Failed to save settings:", error);
+    }
+  };
+
+  const handleExportCSV = () => {
+    const rows = [
+      ["field", "value"],
+      ["firstName", settings.firstName],
+      ["lastName", settings.lastName],
+      ["email", settings.email],
+      ["currency", settings.currency],
+      ["dateFormat", settings.dateFormat],
+      ["emailNotifications", String(settings.emailNotifications)],
+      ["budgetAlerts", String(settings.budgetAlerts)],
+      ["goalReminders", String(settings.goalReminders)],
+    ];
+
+    const csv = rows.map((row) => row.map((v) => `"${String(v).replace(/"/g, '""')}"`).join(",")).join("\n");
+    const blob = new Blob([csv], { type: "text/csv;charset=utf-8;" });
+    const url = URL.createObjectURL(blob);
+
+    const link = document.createElement("a");
+    link.href = url;
+    link.download = "fintrack-settings.csv";
+    link.click();
+
+    URL.revokeObjectURL(url);
+  };
+
+  const handleExportJSON = () => {
+    const blob = new Blob([JSON.stringify(settings, null, 2)], {
+      type: "application/json;charset=utf-8;",
+    });
+    const url = URL.createObjectURL(blob);
+
+    const link = document.createElement("a");
+    link.href = url;
+    link.download = "fintrack-settings.json";
+    link.click();
+
+    URL.revokeObjectURL(url);
   };
 
   return (
@@ -24,8 +103,6 @@ export default function Settings() {
       </div>
 
       <div className="space-y-6 max-w-2xl">
-
-        {/* Profile */}
         <Card>
           <CardHeader className="flex flex-row items-center gap-3 pb-4">
             <div className="flex h-9 w-9 items-center justify-center rounded-lg bg-primary/10 text-primary">
@@ -36,34 +113,49 @@ export default function Settings() {
           <CardContent className="space-y-4">
             <div className="grid grid-cols-2 gap-4">
               <div>
-                <label className="text-sm font-medium text-muted-foreground mb-1.5 block">First Name</label>
+                <label className="text-sm font-medium text-muted-foreground mb-1.5 block">
+                  First Name
+                </label>
                 <input
                   type="text"
-                  defaultValue="John"
+                  value={settings.firstName}
+                  onChange={(e) =>
+                    setSettings((prev) => ({ ...prev, firstName: e.target.value }))
+                  }
                   className="w-full rounded-md border border-border bg-background px-3 py-2 text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-primary/50"
                 />
               </div>
               <div>
-                <label className="text-sm font-medium text-muted-foreground mb-1.5 block">Last Name</label>
+                <label className="text-sm font-medium text-muted-foreground mb-1.5 block">
+                  Last Name
+                </label>
                 <input
                   type="text"
-                  defaultValue="Doe"
+                  value={settings.lastName}
+                  onChange={(e) =>
+                    setSettings((prev) => ({ ...prev, lastName: e.target.value }))
+                  }
                   className="w-full rounded-md border border-border bg-background px-3 py-2 text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-primary/50"
                 />
               </div>
             </div>
+
             <div>
-              <label className="text-sm font-medium text-muted-foreground mb-1.5 block">Email</label>
+              <label className="text-sm font-medium text-muted-foreground mb-1.5 block">
+                Email
+              </label>
               <input
                 type="email"
-                defaultValue="john.doe@example.com"
+                value={settings.email}
+                onChange={(e) =>
+                  setSettings((prev) => ({ ...prev, email: e.target.value }))
+                }
                 className="w-full rounded-md border border-border bg-background px-3 py-2 text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-primary/50"
               />
             </div>
           </CardContent>
         </Card>
 
-        {/* Preferences */}
         <Card>
           <CardHeader className="flex flex-row items-center gap-3 pb-4">
             <div className="flex h-9 w-9 items-center justify-center rounded-lg bg-primary/10 text-primary">
@@ -73,10 +165,14 @@ export default function Settings() {
           </CardHeader>
           <CardContent className="space-y-4">
             <div>
-              <label className="text-sm font-medium text-muted-foreground mb-1.5 block">Default Currency</label>
+              <label className="text-sm font-medium text-muted-foreground mb-1.5 block">
+                Default Currency
+              </label>
               <select
-                value={currency}
-                onChange={(e) => setCurrency(e.target.value)}
+                value={settings.currency}
+                onChange={(e) =>
+                  setSettings((prev) => ({ ...prev, currency: e.target.value }))
+                }
                 className="w-full rounded-md border border-border bg-background px-3 py-2 text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-primary/50"
               >
                 <option value="USD">USD — US Dollar</option>
@@ -88,11 +184,16 @@ export default function Settings() {
                 <option value="INR">INR — Indian Rupee</option>
               </select>
             </div>
+
             <div>
-              <label className="text-sm font-medium text-muted-foreground mb-1.5 block">Date Format</label>
+              <label className="text-sm font-medium text-muted-foreground mb-1.5 block">
+                Date Format
+              </label>
               <select
-                value={dateFormat}
-                onChange={(e) => setDateFormat(e.target.value)}
+                value={settings.dateFormat}
+                onChange={(e) =>
+                  setSettings((prev) => ({ ...prev, dateFormat: e.target.value }))
+                }
                 className="w-full rounded-md border border-border bg-background px-3 py-2 text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-primary/50"
               >
                 <option value="MM/DD/YYYY">MM/DD/YYYY</option>
@@ -103,7 +204,6 @@ export default function Settings() {
           </CardContent>
         </Card>
 
-        {/* Notifications */}
         <Card>
           <CardHeader className="flex flex-row items-center gap-3 pb-4">
             <div className="flex h-9 w-9 items-center justify-center rounded-lg bg-primary/10 text-primary">
@@ -113,21 +213,39 @@ export default function Settings() {
           </CardHeader>
           <CardContent className="space-y-4">
             {[
-              { label: "Email Notifications", desc: "Receive weekly summaries and reports", value: emailNotifications, set: setEmailNotifications },
-              { label: "Budget Alerts", desc: "Alert when spending approaches budget limit", value: budgetAlerts, set: setBudgetAlerts },
-              { label: "Goal Reminders", desc: "Reminders to contribute to your savings goals", value: goalReminders, set: setGoalReminders },
-            ].map(({ label, desc, value, set }) => (
+              {
+                key: "emailNotifications" as const,
+                label: "Email Notifications",
+                desc: "Receive weekly summaries and reports",
+              },
+              {
+                key: "budgetAlerts" as const,
+                label: "Budget Alerts",
+                desc: "Alert when spending approaches budget limit",
+              },
+              {
+                key: "goalReminders" as const,
+                label: "Goal Reminders",
+                desc: "Reminders to contribute to your savings goals",
+              },
+            ].map(({ key, label, desc }) => (
               <div key={label} className="flex items-center justify-between">
                 <div>
                   <p className="text-sm font-medium text-foreground">{label}</p>
                   <p className="text-xs text-muted-foreground mt-0.5">{desc}</p>
                 </div>
                 <button
-                  onClick={() => set(!value)}
-                  className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors focus:outline-none focus:ring-2 focus:ring-primary/50 ${value ? "bg-primary" : "bg-muted"}`}
+                  onClick={() =>
+                    setSettings((prev) => ({ ...prev, [key]: !prev[key] }))
+                  }
+                  className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors focus:outline-none focus:ring-2 focus:ring-primary/50 ${
+                    settings[key] ? "bg-primary" : "bg-muted"
+                  }`}
                 >
                   <span
-                    className={`inline-block h-4 w-4 transform rounded-full bg-white shadow transition-transform ${value ? "translate-x-6" : "translate-x-1"}`}
+                    className={`inline-block h-4 w-4 transform rounded-full bg-white shadow transition-transform ${
+                      settings[key] ? "translate-x-6" : "translate-x-1"
+                    }`}
                   />
                 </button>
               </div>
@@ -135,7 +253,6 @@ export default function Settings() {
           </CardContent>
         </Card>
 
-        {/* Data & Export */}
         <Card>
           <CardHeader className="flex flex-row items-center gap-3 pb-4">
             <div className="flex h-9 w-9 items-center justify-center rounded-lg bg-primary/10 text-primary">
@@ -144,13 +261,21 @@ export default function Settings() {
             <CardTitle className="text-base">Data & Export</CardTitle>
           </CardHeader>
           <CardContent className="space-y-3">
-            <p className="text-sm text-muted-foreground">Export your financial data for use in other applications.</p>
+            <p className="text-sm text-muted-foreground">
+              Export your financial data for use in other applications.
+            </p>
             <div className="flex gap-3">
-              <button className="flex items-center gap-2 rounded-md border border-border bg-background px-4 py-2 text-sm font-medium text-foreground hover:bg-secondary transition-colors">
+              <button
+                onClick={handleExportCSV}
+                className="flex items-center gap-2 rounded-md border border-border bg-background px-4 py-2 text-sm font-medium text-foreground hover:bg-secondary transition-colors"
+              >
                 <Download className="h-4 w-4" />
                 Export as CSV
               </button>
-              <button className="flex items-center gap-2 rounded-md border border-border bg-background px-4 py-2 text-sm font-medium text-foreground hover:bg-secondary transition-colors">
+              <button
+                onClick={handleExportJSON}
+                className="flex items-center gap-2 rounded-md border border-border bg-background px-4 py-2 text-sm font-medium text-foreground hover:bg-secondary transition-colors"
+              >
                 <Download className="h-4 w-4" />
                 Export as JSON
               </button>
@@ -158,7 +283,6 @@ export default function Settings() {
           </CardContent>
         </Card>
 
-        {/* Security */}
         <Card>
           <CardHeader className="flex flex-row items-center gap-3 pb-4">
             <div className="flex h-9 w-9 items-center justify-center rounded-lg bg-primary/10 text-primary">
@@ -168,7 +292,9 @@ export default function Settings() {
           </CardHeader>
           <CardContent className="space-y-4">
             <div>
-              <label className="text-sm font-medium text-muted-foreground mb-1.5 block">Current Password</label>
+              <label className="text-sm font-medium text-muted-foreground mb-1.5 block">
+                Current Password
+              </label>
               <input
                 type="password"
                 placeholder="••••••••"
@@ -176,7 +302,9 @@ export default function Settings() {
               />
             </div>
             <div>
-              <label className="text-sm font-medium text-muted-foreground mb-1.5 block">New Password</label>
+              <label className="text-sm font-medium text-muted-foreground mb-1.5 block">
+                New Password
+              </label>
               <input
                 type="password"
                 placeholder="••••••••"
@@ -186,7 +314,6 @@ export default function Settings() {
           </CardContent>
         </Card>
 
-        {/* Save Button */}
         <div className="flex justify-end">
           <button
             onClick={handleSave}
@@ -199,7 +326,6 @@ export default function Settings() {
             {saved ? "Saved!" : "Save Changes"}
           </button>
         </div>
-
       </div>
     </AppLayout>
   );

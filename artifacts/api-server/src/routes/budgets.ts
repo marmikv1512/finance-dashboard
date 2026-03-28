@@ -87,6 +87,7 @@ router.post("/", async (req, res) => {
   try {
     const data = insertBudgetSchema.parse(req.body);
     const [budget] = await db.insert(budgetsTable).values(data).returning();
+
     res.status(201).json({
       id: budget.id,
       categoryId: budget.categoryId,
@@ -97,9 +98,14 @@ router.post("/", async (req, res) => {
       alertThreshold: budget.alertThreshold ? parseFloat(budget.alertThreshold) : 80,
       createdAt: budget.createdAt.toISOString(),
     });
-  } catch (err) {
+  } catch (err: any) {
     req.log.error(err);
-    res.status(400).json({ error: "Invalid budget data" });
+
+    res.status(400).json({
+      error: "Invalid budget data",
+      details: err?.issues || err?.message || err,
+      body: req.body,
+    });
   }
 });
 
